@@ -124,20 +124,22 @@ def get_devices_from_db(db_table):
 
 def get_connected_devices(devices_list, devices_list_prev1, devices_list_prev2):
     connected_devs = []
-    for dev in devices_list:
-        res1 = len(list(filter(lambda d: d['mac'] == dev['mac'], devices_list_prev1)))
-        res2 = len(list(filter(lambda d: d['mac'] == dev['mac'], devices_list_prev2)))
-        if(res1 == res2 and res2 == 0):
-            connected_devs.append(dev)
+    if (len(devices_list_prev1) > 0 and len(devices_list_prev2) > 0):
+        for dev in devices_list:
+            res1 = len(list(filter(lambda d: d['mac'] == dev['mac'], devices_list_prev1)))
+            res2 = len(list(filter(lambda d: d['mac'] == dev['mac'], devices_list_prev2)))
+            if(res1 == res2 and res2 == 0):
+                connected_devs.append(dev)
     return connected_devs
 
 def get_disconnected_devices(devices_list, devices_list_prev1, devices_list_prev2):
     disconnected_devs = []
-    for dev in devices_list_prev2:
-        res1 = len(list(filter(lambda d: d['mac'] == dev['mac'], devices_list_prev1)))
-        res2 = len(list(filter(lambda d: d['mac'] == dev['mac'], devices_list)))
-        if(res1 == res2 and res2 == 0):
-            disconnected_devs.append(dev)
+    if (len(devices_list_prev1) > 0 and len(devices_list_prev2) > 0):
+        for dev in devices_list_prev2:
+            res1 = len(list(filter(lambda d: d['mac'] == dev['mac'], devices_list_prev1)))
+            res2 = len(list(filter(lambda d: d['mac'] == dev['mac'], devices_list)))
+            if(res1 == res2 and res2 == 0):
+                disconnected_devs.append(dev)
     return disconnected_devs
 
 def scan_vendors(devices_list):
