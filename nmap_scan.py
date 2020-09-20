@@ -22,7 +22,8 @@ def get_ip_mask():
 
 def scan_network_devices(ip_mask):
     sys.stdout.flush()
-    stream = os.popen('nmap --privileged -T polite -sn %s' %(ip_mask))
+    #stream = os.popen('nmap --privileged -T polite -sn %s' %(ip_mask))
+    stream = os.popen('nmap --privileged -sn %s' %(ip_mask))
     output = stream.read()
     outputList = output.splitlines()
     init = 3
@@ -53,10 +54,10 @@ def scan_network_devices(ip_mask):
             'device_name': device_name
         }
         devices_list.append(device)
-        
+    devices_list = scan_vendors(devices_list)
     return devices_list
 
-def db_clear_table(db_table)
+def db_clear_table(db_table):
     global conn
     cur = conn.cursor()
     cur.execute("DELETE FROM %s" %db_table)
@@ -121,27 +122,23 @@ def get_devices_from_db(db_table):
     devices_list = select_all_devices(db_table)
     return devices_list
 
-def get_connected_devices(devices_list, db_devices_list):
-    disconnected_devs = []
-    for d1 in devices_list:
-        dev_present = False
-        for d2 in db_devices_list:
-            if d1['mac'] == d2['mac']:
-                dev_present = True
-        if not dev_present:
-            disconnected_devs.append(d1)
-    return disconnected_devs
-
-def get_disconnected_devices(devices_list, db_devices_list):
+def get_connected_devices(devices_list, devices_list_prev1, devices_list_prev2):
     connected_devs = []
-    for d1 in db_devices_list:
-        dev_present = False
-        for d2 in devices_list:
-            if d1['mac'] == d2['mac']:
-                dev_present = True
-        if not dev_present:
-            connected_devs.append(d1)
+    for dev in devices_list:
+        res1 = len(list(filter(lambda d: d['mac'] == dev['mac'], devices_list_prev1)))
+        res2 = len(list(filter(lambda d: d['mac'] == dev['mac'], devices_list_prev2)))
+        if(res1 == res2 and res2 == 0):
+            connected_devs.append(dev)
     return connected_devs
+
+def get_disconnected_devices(devices_list, devices_list_prev1, devices_list_prev2):
+    disconnected_devs = []
+    for dev in devices_list_prev2:
+        res1 = len(list(filter(lambda d: d['mac'] == dev['mac'], devices_list_prev1)))
+        res2 = len(list(filter(lambda d: d['mac'] == dev['mac'], devices_list)))
+        if(res1 == res2 and res2 == 0):
+            disconnected_devs.append(dev)
+    return disconnected_devs
 
 def scan_vendors(devices_list):
     for device in devices_list:
@@ -152,24 +149,34 @@ def scan_vendors(devices_list):
             time.sleep(0.5)
     return devices_list
 
+def db_update_devices(devices_list, devices_list_prev1):
+    db_clear_table("devices")
+    db_clear_table("previous_devices")
+    db_store_devices(devices_list, "devices")
+    db_store_devices(devices_list_prev1, "previous_devices")
+
+def get_current_devices(devices_list, devices_list_prev1):
+    sum_list = devices_list + devices_list_prev1
+    current_devices = list({dev['mac']:dev for dev in sum_list}.values())
+    return current_devices
+
 def main():
     global conn
     ip_mask = get_ip_mask()
     #scan network for devices
     devices_list = scan_network_devices(ip_mask)
-    #obtain vendor by mac from online api
-    devices_list = scan_vendors(devices_list)
     #get devices from db
-    db_devices_list = get_devices_from_db("devices")
-    #remove devices from db to put current list
-    db_clear_table("devices")
-    #put current devices
-    db_store_devices(devices_list, "devices")
-    
-    disconnected_devs = get_disconnected_devices(devices_list, db_devices_list)
-    connected_devs = get_connected_devices(devices_list, db_devices_list)
+    devices_list_prev1 = get_devices_from_db("devices")
+    devices_list_prev2 = get_devices_from_db("previous_devices")
+    #update devices --------------------------------
+    db_update_devices(devices_list, devices_list_prev1)
+    #-----------------------------------------------
+    current_devices = get_current_devices(devices_list, devices_list_prev1)
+    connected_devs = get_connected_devices(devices_list, devices_list_prev1, devices_list_prev2)
+    disconnected_devs = get_disconnected_devices(devices_list, devices_list_prev1, devices_list_prev2)
+
     res = {
-        "current_devices": devices_list,
+        "current_devices": current_devices,
         "connected": connected_devs,
         "disconnected": disconnected_devs
     }
