@@ -4,12 +4,14 @@ import json
 import socket
 import sqlite3
 import requests
+import pathlib
 import time
 
-DB_FILE = "/home/uzr/network_scanner/net_devs.db"
+DB_FILENAME = "net_devs.db"
 conn = None #connection variable
 
 def get_ip_mask():
+
     ip_address = ([l for l in ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2]
                                 if not ip.startswith("127.")][:1], [[(s.connect(('8.8.8.8', 53)),
                                                                     s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]]) if l][0][0])
@@ -18,7 +20,7 @@ def get_ip_mask():
     ip_mask = '.'.join(ip_mask)
     return ip_mask
 
-def get_network_devices(ip_mask):
+def scan_network_devices(ip_mask):
     sys.stdout.flush()
     stream = os.popen('nmap --privileged -T polite -sn %s' %(ip_mask))
     output = stream.read()
@@ -54,34 +56,49 @@ def get_network_devices(ip_mask):
         
     return devices_list
 
-def db_clear_devices():
+def db_clear_table(db_table)
     global conn
     cur = conn.cursor()
-    cur.execute("DELETE FROM devices")
+    cur.execute("DELETE FROM %s" %db_table)
     conn.commit()
 
-def db_store_devices(devices_list):
+def db_store_devices(devices_list, db_table):
     global conn
     cur = conn.cursor()
 
     for device in devices_list:
-        cur.execute("INSERT INTO devices (mac, ip, vendor, device_name) VALUES ('%s', '%s', '%s', '%s')" %(device['mac'], device['ip'], device['vendor'], device['device_name']))
+        cur.execute("INSERT INTO %s (mac, ip, vendor, device_name) VALUES ('%s', '%s', '%s', '%s')" %(db_table, device['mac'], device['ip'], device['vendor'], device['device_name']))
     conn.commit()
 
-def create_connection(db_file):
+def create_database(db_file):
+    create_devices_table ="""CREATE TABLE "devices" ( "mac" TEXT NOT NULL, "ip" TEXT NOT NULL, "vendor" TEXT, "device_name" TEXT, PRIMARY KEY("mac") )"""
+    create_previous_devices_table = """CREATE TABLE "previous_devices" ( "mac" TEXT NOT NULL, "ip" TEXT NOT NULL, "vendor" TEXT, "device_name" TEXT, PRIMARY KEY("mac") )"""
+    conn = sqlite3.connect(db_file)
+    c = conn.cursor()
+    c.execute(create_devices_table)
+    c.execute(create_previous_devices_table)
+    conn.commit()
+    conn.close()
+
+def create_connection():
     """ create a database connection to the SQLite database
         specified by the db_file
     :param db_file: database file
     :return: Connection object or None
     """
     global conn
+    db_file = str(pathlib.Path(__file__).parent.absolute()) + os.path.sep + DB_FILENAME
+    if not os.path.isfile(db_file):
+        create_database(db_file)
+    conn = None    
     try:
         conn = sqlite3.connect(db_file)
     except Exception as e:
         print(e)
+        conn.close()
         sys.exit(1)
 
-def select_all_devices():
+def select_all_devices(db_table):
     """
     Query all rows in the devices table
     :return:
@@ -89,7 +106,7 @@ def select_all_devices():
     global conn
     conn.row_factory = dict_factory
     cur = conn.cursor()
-    cur.execute("SELECT * FROM devices")
+    cur.execute("SELECT * FROM %s" %db_table)
     devices_list = cur.fetchall()
     return devices_list
 
@@ -99,9 +116,9 @@ def dict_factory(cursor, row):
         d[col[0]] = row[idx]
     return d
 
-def get_devices_from_db():
-    create_connection(DB_FILE)
-    devices_list = select_all_devices()
+def get_devices_from_db(db_table):
+    create_connection()
+    devices_list = select_all_devices(db_table)
     return devices_list
 
 def get_connected_devices(devices_list, db_devices_list):
@@ -138,11 +155,17 @@ def scan_vendors(devices_list):
 def main():
     global conn
     ip_mask = get_ip_mask()
-    devices_list = get_network_devices(ip_mask)
+    #scan network for devices
+    devices_list = scan_network_devices(ip_mask)
+    #obtain vendor by mac from online api
     devices_list = scan_vendors(devices_list)
-    db_devices_list = get_devices_from_db()
-    db_clear_devices()
-    db_store_devices(devices_list)
+    #get devices from db
+    db_devices_list = get_devices_from_db("devices")
+    #remove devices from db to put current list
+    db_clear_table("devices")
+    #put current devices
+    db_store_devices(devices_list, "devices")
+    
     disconnected_devs = get_disconnected_devices(devices_list, db_devices_list)
     connected_devs = get_connected_devices(devices_list, db_devices_list)
     res = {
