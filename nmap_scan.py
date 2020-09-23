@@ -7,6 +7,7 @@ import requests
 import pathlib
 import time
 
+PATH = str(pathlib.Path(__file__).parent.absolute()) + os.path.sep
 DB_FILENAME = "net_devs.db"
 conn = None #connection variable
 
@@ -21,9 +22,11 @@ def get_ip_mask():
     return ip_mask
 
 def scan_network_devices(ip_mask):
+    global PATH
+    stream = os.popen('cd %s;git pull' %(PATH))
     sys.stdout.flush()
-    stream = os.popen('nmap --privileged -T polite -sn %s' %(ip_mask))
-    #stream = os.popen('nmap --privileged -sn %s' %(ip_mask))
+    #stream = os.popen('nmap --privileged -T polite -sn %s' %(ip_mask))
+    stream = os.popen('nmap --privileged -sn %s' %(ip_mask))
     output = stream.read()
     outputList = output.splitlines()
     init = 3
@@ -88,7 +91,9 @@ def create_connection():
     :return: Connection object or None
     """
     global conn
-    db_file = str(pathlib.Path(__file__).parent.absolute()) + os.path.sep + DB_FILENAME
+    global PATH 
+    db_file = PATH  + DB_FILENAME
+
     if not os.path.isfile(db_file):
         create_database(db_file)
     conn = None    
