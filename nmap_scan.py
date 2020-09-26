@@ -6,21 +6,32 @@ import sqlite3
 import requests
 import pathlib
 import time
+import uuid
 
 PATH = str(pathlib.Path(__file__).parent.absolute()) + os.path.sep
 DB_FILENAME = "net_devs.db"
+ip_address = None
+mac_address = None
+ip_mask = None
 conn = None #connection variable
 
 def get_ip_mask():
-
-    ip_address = ([l for l in ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2]
-                                if not ip.startswith("127.")][:1], [[(s.connect(('8.8.8.8', 53)),
-                                                                    s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]]) if l][0][0])
+    global ip_address, mac_address, ip_mask
+    #read ip address for network with internet access
+    ip_address = ([l for l in ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")][:1], [
+                  [(s.connect(('8.8.8.8', 53)), s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]]) if l][0][0])
+    #assume that the mask is 0/24
     ip_mask = ip_address.split('.')
     ip_mask[3] = '0/24'
     ip_mask = '.'.join(ip_mask)
+    #read and format mac address
+    mac_address = (':'.join(['{:02x}'.format(
+        (uuid.getnode() >> ele) & 0xff) for ele in range(0, 8*6, 8)][::-1]))
+    mac_address = mac_address.upper()
+
     return ip_mask
 
+"""
 def scan_network_devices(ip_mask):
     global PATH
     stream = os.popen('cd %s;git pull' %(PATH))
@@ -29,9 +40,9 @@ def scan_network_devices(ip_mask):
     stream = os.popen('nmap --privileged -sn %s' %(ip_mask))
     output = stream.read()
     outputList = output.splitlines()
+    
     init = 3
     fin = len(outputList) - 2
-
     devices_list = []
 
     for i in range(init, fin, 3):
@@ -56,6 +67,60 @@ def scan_network_devices(ip_mask):
             'vendor': vendor,
             'device_name': device_name
         }
+        devices_list.append(device)
+    devices_list = scan_vendors(devices_list)
+    return devices_list
+"""
+
+def scan_network_devices(ip_mask):
+    global PATH
+    stream = os.popen('cd %s;git pull' %(PATH))
+    sys.stdout.flush()
+    stream = os.popen('nmap --privileged -T polite -sn %s' %(ip_mask))
+    #stream = os.popen('nmap --privileged -sn %s' %(ip_mask))
+    output = stream.read()
+    outputList = output.splitlines()
+    
+    init = 1 #first line contains nmap version
+    #fin = len(outputList) - (1 + 3)# 1 - last line, 3 - the scanning device itself
+    fin = len(outputList) - 1 #last line is irrelevant
+    devices_list = []
+
+    for i in range(init, fin, 3):
+        ip = 'None'
+        mac = 'None'
+        vendor = 'Unknown'
+        device_name = ''
+        line0 = outputList[i]
+        line1 = outputList[i+1] #never used, we do not need this line
+        line2 = outputList[i+2] 
+        
+        #Nmap scan report for 192.168.x.x
+        ip = line0.replace('Nmap scan report for ', '') #remove everything but ip
+        device_name = ''
+        #ip can contain device name sometimes
+        if(ip.find('(') > -1):
+            device_name = ip[0: ip.find('(')-1]
+            ip = ip.replace(ip[0: ip.find('(')+1], '')
+            ip = ip.replace( ')', '')
+        
+        if line1: #Host is up (0.0024s latency).
+            pass
+        if(line2.startswith('MAC Address:')):
+            mac = line2 [13 : 30]
+            vendor = line2 [32: len(line2)-1] #we will scan vendor online
+        elif(line2.startswith('Nmap done')):
+            global ip_address, mac_address
+            if ip == ip_address:
+                mac = mac_address
+
+        device = {
+            'ip': ip,
+            'mac': mac,
+            'vendor': vendor,
+            'device_name': device_name
+        }
+
         devices_list.append(device)
     devices_list = scan_vendors(devices_list)
     return devices_list
